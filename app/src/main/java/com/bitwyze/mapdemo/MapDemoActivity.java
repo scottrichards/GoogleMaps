@@ -1,15 +1,28 @@
-package com.example.mapdemo;
+package com.bitwyze.mapdemo;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.location.Location;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
+import android.os.SystemClock;
+import android.provider.MediaStore;
 import android.support.v4.app.DialogFragment;
 import android.support.v4.app.FragmentActivity;
+import android.support.v4.app.FragmentManager;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
+import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuItem;
+import android.view.View;
+import android.view.animation.BounceInterpolator;
+import android.widget.EditText;
 import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
@@ -21,9 +34,16 @@ import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.maps.CameraUpdate;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.GoogleMap.OnMapLongClickListener;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.BitmapDescriptor;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Marker;
+import com.google.android.gms.maps.model.MarkerOptions;
+
+import java.io.File;
 
 import permissions.dispatcher.NeedsPermission;
 import permissions.dispatcher.RuntimePermissions;
@@ -32,7 +52,8 @@ import permissions.dispatcher.RuntimePermissions;
 public class MapDemoActivity extends AppCompatActivity implements
 		GoogleApiClient.ConnectionCallbacks,
 		GoogleApiClient.OnConnectionFailedListener,
-		LocationListener {
+		LocationListener,
+		OnMapLongClickListener{
 
 	private SupportMapFragment mapFragment;
 	private GoogleMap map;
@@ -47,6 +68,10 @@ public class MapDemoActivity extends AppCompatActivity implements
 	 */
 	private final static int CONNECTION_FAILURE_RESOLUTION_REQUEST = 9000;
 
+	public final static int CAPTURE_IMAGE_ACTIVITY_REQUEST_CODE = 1034;
+	public String photoFileName = "photo.jpg";
+	public final String APP_TAG = "com.bitwyze.mapdemo";
+
 	@Override
 	protected void onCreate(Bundle savedInstanceState) { 
 		super.onCreate(savedInstanceState);
@@ -57,7 +82,9 @@ public class MapDemoActivity extends AppCompatActivity implements
 			mapFragment.getMapAsync(new OnMapReadyCallback() {
                 @Override
                 public void onMapReady(GoogleMap map) {
-                    loadMap(map);
+					map.setMapType(GoogleMap.MAP_TYPE_SATELLITE);
+					loadMap(map);
+					map.setInfoWindowAdapter(new CustomWindowAdapter(getLayoutInflater()));
                 }
             });
 		} else {
@@ -66,9 +93,33 @@ public class MapDemoActivity extends AppCompatActivity implements
 
 	}
 
-    protected void loadMap(GoogleMap googleMap) {
+	@Override
+	public boolean onCreateOptionsMenu(Menu menu) {
+	//	return super.onCreateOptionsMenu(menu);
+		getMenuInflater().inflate(R.menu.main_menu, menu);
+		return true;
+	}
+
+	@Override
+	public boolean onOptionsItemSelected(MenuItem item) {
+		// Handle action bar item clicks here. The action bar will
+		// automatically handle clicks on the Home/Up button, so long
+		// as you specify a parent activity in AndroidManifest.xml.
+		int id = item.getItemId();
+
+		//noinspection SimplifiableIfStatement
+		if (id == R.id.action_camera) {
+			onLaunchCamera();
+			return true;
+		}
+
+		return super.onOptionsItemSelected(item);
+	}
+
+	protected void loadMap(GoogleMap googleMap) {
         map = googleMap;
         if (map != null) {
+			map.setOnMapLongClickListener(this);
             // Map is ready
             Toast.makeText(this, "Map Fragment was loaded properly!", Toast.LENGTH_SHORT).show();
 			MapDemoActivityPermissionsDispatcher.getMyLocationWithCheck(this);
@@ -250,6 +301,12 @@ public class MapDemoActivity extends AppCompatActivity implements
 		}
 	}
 
+	@Override
+	public void onMapLongClick(LatLng latLng) {
+		Toast.makeText(this, "Long Press", Toast.LENGTH_LONG).show();
+		showAlertDialogForPoint(latLng);
+	}
+
 	// Define a DialogFragment that displays the error dialog
 	public static class ErrorDialogFragment extends DialogFragment {
 
@@ -272,6 +329,132 @@ public class MapDemoActivity extends AppCompatActivity implements
 		public Dialog onCreateDialog(Bundle savedInstanceState) {
 			return mDialog;
 		}
+	}
+
+
+	// Display the alert that adds the marker
+	private void showAlertDialogForPoint(final LatLng point) {
+		// inflate message_item.xml view
+		View messageView = LayoutInflater.from(MapDemoActivity.this).
+				inflate(R.layout.message_item, null);
+		// Create alert dialog builder
+		AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(this);
+		// set message_item.xml to AlertDialog builder
+		alertDialogBuilder.setView(messageView);
+
+		// Create alert dialog
+		final AlertDialog alertDialog = alertDialogBuilder.create();
+
+		// Configure dialog button (OK)
+		alertDialog.setButton(DialogInterface.BUTTON_POSITIVE, "OK",
+				new DialogInterface.OnClickListener() {
+					@Override
+					public void onClick(DialogInterface dialog, int which) {
+						// Define color of marker icon
+						BitmapDescriptor defaultMarker =
+								BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN);
+						// Extract content from alert dialog
+						String title = ((EditText) alertDialog.findViewById(R.id.etTitle)).
+								getText().toString();
+						String snippet = ((EditText) alertDialog.findViewById(R.id.etSnippet)).
+								getText().toString();
+						// Creates and adds marker to the map
+						Marker marker = map.addMarker(new MarkerOptions()
+								.position(point)
+								.title(title)
+								.snippet(snippet)
+								.icon(defaultMarker));
+
+						// Animate marker using drop effect
+						// --> Call the dropPinEffect method here
+						dropPinEffect(marker);
+					}
+				});
+
+		// Configure dialog button (Cancel)
+		alertDialog.setButton(DialogInterface.BUTTON_NEGATIVE, "Cancel",
+				new DialogInterface.OnClickListener() {
+					public void onClick(DialogInterface dialog, int id) { dialog.cancel(); }
+				});
+
+		// Display the dialog
+		alertDialog.show();
+	}
+
+	private void dropPinEffect(final Marker marker) {
+		// Handler allows us to repeat a code block after a specified delay
+		final android.os.Handler handler = new android.os.Handler();
+		final long start = SystemClock.uptimeMillis();
+		final long duration = 1500;
+
+		// Use the bounce interpolator
+		final android.view.animation.Interpolator interpolator =
+				new BounceInterpolator();
+
+		// Animate marker with a bounce updating its position every 15ms
+		handler.post(new Runnable() {
+			@Override
+			public void run() {
+				long elapsed = SystemClock.uptimeMillis() - start;
+				// Calculate t for bounce based on elapsed time
+				float t = Math.max(
+						1 - interpolator.getInterpolation((float) elapsed
+								/ duration), 0);
+				// Set the anchor
+				marker.setAnchor(0.5f, 1.0f + 14 * t);
+
+				if (t > 0.0) {
+					// Post this event again 15ms from now.
+					handler.postDelayed(this, 15);
+				} else { // done elapsing, show window
+					marker.showInfoWindow();
+				}
+			}
+		});
+	}
+
+
+	// CAMERA
+
+	public void onLaunchCamera() {
+		// create Intent to take a picture and return control to the calling application
+		Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+		intent.putExtra(MediaStore.EXTRA_OUTPUT, getPhotoFileUri(photoFileName)); // set the image file name
+
+		// If you call startActivityForResult() using an intent that no app can handle, your app will crash.
+		// So as long as the result is not null, it's safe to use the intent.
+		if (intent.resolveActivity(getPackageManager()) != null) {
+			// Start the image capture intent to take photo
+			startActivityForResult(intent, CAPTURE_IMAGE_ACTIVITY_REQUEST_CODE);
+		}
+	}
+
+
+	// Returns the Uri for a photo stored on disk given the fileName
+	public Uri getPhotoFileUri(String fileName) {
+		// Only continue if the SD Card is mounted
+		if (isExternalStorageAvailable()) {
+			// Get safe storage directory for photos
+			// Use `getExternalFilesDir` on Context to access package-specific directories.
+			// This way, we don't need to request external read/write runtime permissions.
+			File mediaStorageDir = new File(
+					getExternalFilesDir(Environment.DIRECTORY_PICTURES), APP_TAG);
+
+			// Create the storage directory if it does not exist
+			if (!mediaStorageDir.exists() && !mediaStorageDir.mkdirs()){
+				Log.d(APP_TAG, "failed to create directory");
+			}
+
+			// Return the file target for the photo based on filename
+			return Uri.fromFile(new File(mediaStorageDir.getPath() + File.separator + fileName));
+		}
+		return null;
+	}
+
+	// Returns true if external storage for photos is available
+	private boolean isExternalStorageAvailable() {
+		String state = Environment.getExternalStorageState();
+		return state.equals(Environment.MEDIA_MOUNTED);
 	}
 
 }
